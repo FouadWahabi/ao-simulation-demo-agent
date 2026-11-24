@@ -1,8 +1,4 @@
-"""Returns Assistant agent (baseline implementation).
-
-Instrumented with Datadog LLM Observability decorators. During Datadog Simulations,
-the runtime shim intercepts `lookupOrder` before real database code runs.
-"""
+"""Returns Assistant agent — distinct order disambiguation + correction handling (PR #2)."""
 
 from __future__ import annotations
 
@@ -19,6 +15,7 @@ except ImportError:
         return lambda fn: fn
 
 ORDER_ID_RE = re.compile(r"RD-\d+", re.IGNORECASE)
+CORRECTION_RE = re.compile(r"correction\s*:\s*(.+)$", re.IGNORECASE)
 RETURN_WINDOW_DAYS = 30
 
 
@@ -31,18 +28,25 @@ def lookupOrder(orderId: str) -> dict[str, Any]:
 @agent(name="ao-simulations-returns-demo")
 def handle_message(user_message: str) -> str:
     """Answer whether a shopper's order is eligible for return."""
-    ids = [m.upper() for m in ORDER_ID_RE.findall(user_message)]
-    if not ids:
+    corr = CORRECTION_RE.search(user_message)
+    search_text = corr.group(1) if corr else user_message
+
+    # Deduplicate case-insensitively while preserving order.
+    distinct_ids = list(dict.fromkeys(m.upper() for m in ORDER_ID_RE.findall(search_text)))
+    if not distinct_ids:
         return "Please share your order ID (for example, RD-1006) so I can check return eligibility."
 
-    # Baseline bug: blindly picks the first order ID mentioned.
-    order = lookupOrder(orderId=ids[0])
+    if len(distinct_ids) > 1:
+        return "Which order would you like me to check? Please send one order ID."
+
+    target_id = distinct_ids[0]
+    order = lookupOrder(orderId=target_id)
     if not order.get("found", True):
-        return f"I could not find order {ids[0]}. Please double-check the order ID."
+        return f"I could not find order {target_id}. Please double-check the order ID."
 
     item = order.get("item", "item")
     days = int(order.get("daysSinceDelivery", 0))
-    order_id = order.get("orderId", ids[0])
+    order_id = order.get("orderId", target_id)
     if days <= RETURN_WINDOW_DAYS:
         return f"Order {order_id} ({item}) is eligible for return. It was delivered {days} days ago."
     return f"Order {order_id} ({item}) is ineligible for return. It was delivered {days} days ago."

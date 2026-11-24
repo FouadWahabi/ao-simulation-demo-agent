@@ -1,8 +1,4 @@
-"""Returns Assistant agent (baseline implementation).
-
-Instrumented with Datadog LLM Observability decorators. During Datadog Simulations,
-the runtime shim intercepts `lookupOrder` before real database code runs.
-"""
+"""Returns Assistant agent — naive clarification patch (PR #1)."""
 
 from __future__ import annotations
 
@@ -35,7 +31,10 @@ def handle_message(user_message: str) -> str:
     if not ids:
         return "Please share your order ID (for example, RD-1006) so I can check return eligibility."
 
-    # Baseline bug: blindly picks the first order ID mentioned.
+    # Naive fix: triggers whenever 2+ mentions appear, even if they are the same order ID (e.g. rd-1006 and RD-1006)!
+    if len(ids) > 1:
+        return "Which order would you like me to check? Please send one order ID."
+
     order = lookupOrder(orderId=ids[0])
     if not order.get("found", True):
         return f"I could not find order {ids[0]}. Please double-check the order ID."
